@@ -1,0 +1,89 @@
+function torpedo_pitch_calculation(target_altitude)
+clear all
+clc
+        target_altitude = 50; 
+    
+      if target_altitude > 100
+        fprintf('The Torpedo has hit the water at 100 meters.\n');
+        return;
+    end
+    
+    % Constants
+    m = 500;           % Mass (kg)
+    L = 2.856;         % Length (m)
+    D = 0.324;         % Diameter (m)
+    d = 0.1;           % Distance from CoP to CG (m)
+    rho = 1.225;       % Air density (kg/m³)
+    g = 9.81;          % Gravity (m/s²)
+    A = L * D;         % Cross-sectional area (m²)
+    I = (1/12)*m*L^2 + m*d^2; % Moment of inertia (kg·m²)
+    
+    % Initial conditions [v_x, v_z, theta (rad), omega, x, z]
+    y0 = [0; 0; 0; 0; 0; 0];
+    
+    % Solve ODE with event stopping at given altitude
+    options = odeset('Events', @(t, y) stopEvent(t, y, target_altitude));
+    [~, y, ~, ~, ~] = ode45(@(t, y) odeFunc(t, y, m, I, rho, A, d, g), [0 10], y0, options);
+    
+    % Extract results
+    if ~isempty(y)
+          if target_altitude == 0
+            pitch_deg = 0;
+            velocity = 0;
+        else
+        pitch_deg = rad2deg(y(end, 3));
+        velocity = sqrt(y(end, 1)^2 + y(end, 2)^2);
+          end
+         
+        % Display
+        fprintf('At altitude %.2f m:\n', target_altitude);
+        fprintf('Pitch angle: %.2f degrees\nVelocity: %.2f m/s\n', pitch_deg, velocity);
+    else
+        fprintf('The torpedo did not reach the specified altitude.\n');
+    end
+end
+
+function dydt = odeFunc(~, y, m, I, rho, A, d, g)
+    v_x = y(1);
+    v_z = y(2);
+    theta = y(3);
+    omega = y(4);
+    
+    % Flight path angle
+        gamma = atan2(v_z, v_x); 
+    
+    % Angle of attack
+    alpha = theta - gamma;
+    
+    % Aerodynamic coefficients
+    CLo = 1.1 * (sin(alpha))^2 * cos(alpha);
+    CDo = 1.1 * (sin(alpha))^3 + 0.02;
+    
+    % Axial and normal coefficients
+    CA = (1/(1 + tan(alpha)^2)) * (CDo/cos(alpha) - (CLo * tan(alpha))/cos(alpha));
+    CN = (CLo + CA * sin(alpha)) / cos(alpha);
+    
+    % Forces
+    V = sqrt(v_x^2 + v_z^2);
+    FA = 0.5 * CA * rho * A * V^2;
+    FN = 0.5 * CN * rho * A * V^2;
+    
+    % Accelerations
+    F_x = FA * cos(theta) - FN * sin(theta);
+    F_z = FA * sin(theta) + FN * cos(theta);
+    a_x = F_x / m;
+    a_z = F_z / m + g;
+    
+    % Angular acceleration
+    M = d * FN;
+    omega_dot = M / I;
+    
+    % Derivatives
+    dydt = [a_x; a_z; omega; omega_dot; v_x; v_z];
+end
+
+function [value, isterminal, direction] = stopEvent(~, y, target_altitude)
+    value = y(6) - target_altitude; % Stop when z = target altitude
+    isterminal = 1;
+   direction = 1;
+   end
